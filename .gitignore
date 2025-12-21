@@ -1,0 +1,19 @@
+# PyCharm ayar dosyaları
+.idea/
+.vscode/
+
+# Python derleme dosyaları
+__pycache__/
+*.pyc
+
+# Sanal Ortam
+venv/
+.venv/
+env/
+
+# BÜYÜK DOSYALAR
+data/
+output/
+saved_models/
+*.pth
+*.pt

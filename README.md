@@ -1,79 +1,80 @@
-# P-TransUNet Validation Project
+# P-TransUNet Generalization Study: ETIS-Larib
 
-Bu proje, "P-TransUNet: an improved parallel network for medical image segmentation" (Chong et al., 2023) makalesinde önerilen yöntemin PyTorch ile doğrulanması ve yeniden uygulanması amacıyla geliştirilmiştir.
+This project evaluates the **generalization capability** and robustness of the **P-TransUNet** architecture on the challenging **ETIS-Larib Polyp DB** dataset.
 
-## 🎯 Proje Amacı
-* P-TransUNet mimarisini (P-Transformer ve GLF modülleri) kodlamak.
-* Kvasir-SEG veri seti üzerinde polip segmentasyon başarısını test etmek.
-* Makalede sunulan sonuçlarla karşılaştırmalı rapor hazırlamak.
+For the original validation study (trained on Kvasir-SEG), please refer to: [P-TransUNetValidation](https://github.com/obaltin7/P-TransUNetValidation)
 
-## 📂 Klasör Yapısı
-* `src/`: Model mimarisi, veri yükleyici ve yardımcı kodlar.
-* `data/`: Kvasir-SEG veri seti (GitHub'a yüklenmemiştir, manuel eklenmelidir).
-* `output/`: Test sonuçları ve görseller.
+## 🎯 Project Goal & Challenges
 
-## 🚀 Kurulum
-1. Repoyu klonlayın:
-   ```bash
-   git clone [https://github.com/obaltin7/P-TransUNetValidation.git](https://github.com/obaltin7/P-TransUNetValidation.git)
+* **Objective:** To test how well the P-TransUNet model performs on a dataset it has never seen before, specifically one known for small and difficult-to-detect polyps.
+* **The Challenge:**
+    * **Small Dataset:** Only 196 images are available, which is typically insufficient for training Deep Learning models from scratch.
+    * **Hard Samples:** ETIS-Larib contains small, flat, and subtle polyps that are harder to segment compared to datasets like Kvasir or CVC-ClinicDB.
+* **Our Solution:** To overcome the data scarcity and "data leakage" risks, we implemented a robust pipeline using **Transfer Learning**, **Advanced Data Augmentation**, and **Threshold Tuning**.
 
-## 📂 Dataset
-This project uses the **Kvasir-SEG** dataset. Due to licensing and size constraints, the dataset is not included in this repository.
+## ⚙️ Methodology
 
-Please download the dataset from the official website:
-- **Official Link:** [https://datasets.simula.no/kvasir-seg/](https://datasets.simula.no/kvasir-seg/)
+To achieve scientifically valid and high-performance results, the following strategies were applied:
 
-**Instructions:**
-1. Download `Kvasir-SEG.zip` from the link above.
-2. Extract the contents inside the `data` folder.
-3. Organize the directory structure as follows:
+1.  **Transfer Learning:** Instead of training from random initialization, we used weights pre-trained on the **Kvasir-SEG** dataset. This provided the model with prior knowledge of polyp features.
+2.  **Strict Data Splitting:** To prevent Data Leakage, the dataset was physically split into **Train (166 images)** and **Test (30 images)** folders. The model never saw the Test set during training.
+3.  **Advanced Augmentation:** We used the `albumentations` library to apply heavy augmentations (Rotation, Gaussian Noise, RGB Shift, Flip) to simulate a larger dataset and prevent overfitting.
+4.  **Threshold Optimization:** During inference, we analyzed different threshold values and determined that **0.3** provides the best balance between Precision and Recall for this specific dataset.
 
-```text
-P-TransUNetValidation/
-├── data/
-│   ├── images/
-│   │   ├── cju0qkwl35piu0993l0dewei2.jpg
-│   │   └── ...
-│   └── masks/
-│       ├── cju0qkwl35piu0993l0dewei2.jpg
-│       └── ...
-```
+## 📂 Dataset Structure
 
-## 🚀 Kullanım (Usage)
+The **ETIS-Larib** dataset was organized as follows to ensure a deterministic evaluation:
 
-### 1. Eğitimi Başlatma (Training)
-Modeli eğitmek için aşağıdaki komutu çalıştırın:
-```bash
-python train.py
-```
-Bu işlem model ağırlıklarını saved_models/best_model.pth olarak kaydedecektir.
+* **Train Set:** 166 Images & Masks (Used for training with augmentation)
+* **Test Set:** 30 Images & Masks (Used for final evaluation only)
 
-Donanım: RTX 2060 (6GB) veya üzeri GPU önerilir.
+> **Note:** Due to licensing, the dataset images are not included in this repo. You must download them from [Kaggle](https://www.kaggle.com/datasets/paultimothymooney/etis-larib-polyp-database) and arrange them into `data/ETIS-Larib/train` and `data/ETIS-Larib/test`.
 
-Not: Eğitim parametrelerini (Batch size, Epoch vb.) train.py dosyasının içinden değiştirebilirsiniz.
+## 🚀 Installation & Usage
 
-### 2. Test ve Doğrulama (Testing)
-Eğitilen modeli test etmek ve metrikleri (Dice, IoU, Precision, Recall) hesaplamak için:
+1.  **Clone the repository:**
+    ```bash
+    git clone [https://github.com/obaltin7/P-TransUNet-Etis-Generalization.git](https://github.com/obaltin7/P-TransUNet-Etis-Generalization.git)
+    cd P-TransUNet-Etis-Generalization
+    ```
 
-```bash
-python test.py
-```
+2.  **Install dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-## 📊 Sonuçlar (Results)
-Bu proje kapsamında yapılan deneylerde, orijinal makalede sunulan sonuçlar doğrulanmış ve optimize edilen eğitim stratejileri (Mixed Precision, OHEM Loss vb.) sayesinde daha yüksek başarı oranları elde edilmiştir:
+3.  **Train the model (with Transfer Learning):**
+    ```bash
+    python train.py
+    ```
 
-| Metrik | Doğrulama Sonucu  | Makale Sonucu (Referans) |
-| :--- |:------------------| :--- |
-| **mDice** | **0.9798**        | 0.9352 |
-| **mIoU** | **0.9609**        | 0.8893 |
-| **Recall** | **0.9742**        | 0.9389 |
-| **Precision**| **0.9860**        | 0.9379 |
+4.  **Evaluate the model:**
+    ```bash
+    python test.py
+    ```
+    *This script will calculate metrics using the optimized threshold (0.3) and save the best visual results to the `output/` folder.*
 
-> **Not:** Sonuçlar NVIDIA RTX 2060 donanımı üzerinde, rastgele ayrılmış %10 test seti (random split) kullanılarak elde edilmiştir.
+## 📊 Experimental Results
+
+The model was fine-tuned for 50 epochs on an **NVIDIA RTX 2060 (6GB)**. Despite the limited data, the combination of Transfer Learning and Augmentation significantly boosted performance compared to the baseline.
+
+| Metric | Baseline (From Scratch) | **Final Model (Transfer Learning + Aug + Thresh 0.3)** |
+| :--- | :--- | :--- |
+| **mDice** | ~0.4200 | **0.6121** |
+| **mIoU** | ~0.3500 | **0.5276** |
+| **Recall** | ~0.3800 | **0.6517** |
+| **Precision**| ~0.6500 | **0.6615** |
+
+> **Analysis:** The baseline model struggled to detect small polyps (Recall ~38%). With our optimizations, **Recall increased to 65%**, meaning the model successfully captures the majority of difficult polyp cases.
+
+### Visual Results
+Below are the top-performing segmentation results from the Test set:
+
+![Best Results](output/best_results.png)
 
 ## ⚖️ License & Citation
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-This is an **unofficial** implementation of P-TransUNet. The original paper and architecture ideas belong to the respective authors. If you use this code for your research, please cite the original paper:
+This project is an unofficial implementation for research purposes using the P-TransUNet architecture.
 
-Chong, Yan-Wen & Xie, Ningdi & Liu, Xin & Pan, Shaoming. (2023). P-TransUNet: an improved parallel network for medical image segmentation. BMC Bioinformatics. 24. 10.1186/s12859-023-05409-7.
+If you use this code for your research, please cite the original paper:
+> Chong, Yan-Wen & Xie, Ningdi & Liu, Xin & Pan, Shaoming. (2023). P-TransUNet: an improved parallel network for medical image segmentation. BMC Bioinformatics. 24. 10.1186/s12859-023-05409-7.

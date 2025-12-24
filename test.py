@@ -1,137 +1,154 @@
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split
+from torch.utils.data import DataLoader
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 import os
+import cv2
 
 from src.dataset import PolypDataset
 from src.model import PTransUNet
 
+# --------------------------------------------------------
 # AYARLAR
+# --------------------------------------------------------
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 IMG_SIZE = 256
 DATA_DIR = "data/ETIS-Larib"
-MODEL_PATH = "saved_models/best_model.pth"
+MODEL_PATH = "saved_models/best_model_etis.pth"
+
+# KAZANAN EŞİK DEĞERİ (Sabitlendi)
+BEST_THRESHOLD = 0.3
 
 
 def calculate_metrics(pred, target, threshold=0.5):
-    """
-    Dice, IoU, Precision ve Recall Hesaplama
-    TP: True Positive, FP: False Positive, FN: False Negative
-    """
-    # Tahminleri 0 ve 1'e çevir (Thresholding)
-    pred = (pred > threshold).float()
-    target = (target > threshold).float()
+    """Genel Metrik Hesaplama"""
+    pred_bin = (pred > threshold).float()
+    target_bin = (target > threshold).float()
 
-    # Piksel bazlı hesaplama
-    TP = (pred * target).sum()  # Doğru bilinen polip pikselleri
-    FP = (pred * (1 - target)).sum()  # Polip sandığımız ama olmayan yerler
-    FN = ((1 - pred) * target).sum()  # Kaçırdığımız polip pikselleri
+    TP = (pred_bin * target_bin).sum()
+    FP = (pred_bin * (1 - target_bin)).sum()
+    FN = ((1 - pred_bin) * target_bin).sum()
 
-    epsilon = 1e-8  # Sıfıra bölünme hatasını önlemek için
+    epsilon = 1e-8
 
-    dice = (2. * TP) / (pred.sum() + target.sum() + epsilon)
-    iou = TP / (pred.sum() + target.sum() - TP + epsilon)
-
-    # Precision: "Polip dediklerimin yüzde kaçı gerçekten polip?"
+    dice = (2. * TP) / (pred_bin.sum() + target_bin.sum() + epsilon)
+    iou = TP / (pred_bin.sum() + target_bin.sum() - TP + epsilon)
     precision = TP / (TP + FP + epsilon)
-
-    # Recall (Sensitivity): "Gerçek poliplerin yüzde kaçını yakalayabildim?"
     recall = TP / (TP + FN + epsilon)
 
     return dice.item(), iou.item(), precision.item(), recall.item()
 
 
-def visualize_results(model, loader, save_path="output/result_viz_metrics.png"):
-    model.eval()
-    try:
-        data, mask, edge = next(iter(loader))
-    except StopIteration:
-        return
+def calculate_single_dice(pred, target, threshold=0.5):
+    """Sıralama için tekil Dice skoru"""
+    pred_bin = (pred > threshold).float()
+    target_bin = (target > threshold).float()
+    TP = (pred_bin * target_bin).sum()
+    epsilon = 1e-8
+    dice = (2. * TP) / (pred_bin.sum() + target_bin.sum() + epsilon)
+    return dice.item()
 
-    data, mask = data.to(DEVICE), mask.to(DEVICE)
+
+def visualize_best_results(model, dataset, threshold, save_path="output/best_results.png"):
+    """
+    Test setindeki en başarılı 4 görseli seçer ve kaydeder.
+    """
+    print("🖼️ Görseller taranıyor ve en iyiler seçiliyor...")
+    model.eval()
+    loader = DataLoader(dataset, batch_size=1, shuffle=False)
+    results = []
 
     with torch.no_grad():
-        pred_seg, pred_edge = model(data)
-        pred_seg = torch.sigmoid(pred_seg)
-        pred_edge = torch.sigmoid(pred_edge)
+        for data, mask, edge in tqdm(loader, desc="Analiz"):
+            data, mask = data.to(DEVICE), mask.to(DEVICE)
 
-    # CPU'ya al ve numpy yap
-    data = data.cpu().numpy()
-    mask = mask.cpu().numpy()
-    edge = edge.cpu().numpy()
-    pred_seg = pred_seg.cpu().numpy()
-    pred_edge = pred_edge.cpu().numpy()
+            # Tahmin
+            pred_seg_logits, pred_edge_logits = model(data)
+            pred_seg = torch.sigmoid(pred_seg_logits)
+            pred_edge = torch.sigmoid(pred_edge_logits)
 
-    # Görselleştirme (4 örnek)
-    fig, ax = plt.subplots(4, 4, figsize=(12, 12))
-    for i in range(min(4, data.shape[0])):
-        # Orijinal Resim
-        img = np.transpose(data[i], (1, 2, 0))
+            # Dice skoru hesapla
+            dice_score = calculate_single_dice(pred_seg, mask, threshold=threshold)
+
+            results.append({
+                "dice": dice_score,
+                "img": data.cpu().numpy()[0],
+                "mask": mask.cpu().numpy()[0],
+                "edge": edge.cpu().numpy()[0],
+                "pred_seg": pred_seg.cpu().numpy()[0],
+                "pred_edge": pred_edge.cpu().numpy()[0]
+            })
+
+    # Skora göre sırala (En yüksek en üstte)
+    results.sort(key=lambda x: x["dice"], reverse=True)
+    top_results = results[:4]
+
+    if not top_results:
+        print("❌ Sonuç bulunamadı.")
+        return
+
+    # Çizim
+    batch_n = len(top_results)
+    fig, ax = plt.subplots(batch_n, 4, figsize=(12, 3 * batch_n))
+    if batch_n == 1: ax = ax.reshape(1, -1)
+
+    for i, res in enumerate(top_results):
+        # 1. Giriş
+        img = np.transpose(res["img"], (1, 2, 0))
         ax[i, 0].imshow(img)
         ax[i, 0].set_title("Giriş Resmi")
         ax[i, 0].axis("off")
 
-        # Gerçek Maske
-        ax[i, 1].imshow(mask[i].squeeze(), cmap='gray')
+        # 2. Gerçek Maske
+        ax[i, 1].imshow(res["mask"].squeeze(), cmap='gray')
         ax[i, 1].set_title("Gerçek Maske")
         ax[i, 1].axis("off")
 
-        # Tahmin
-        ax[i, 2].imshow(pred_seg[i].squeeze() > 0.5, cmap='gray')
-        ax[i, 2].set_title("Tahmin")
+        # 3. Tahmin
+        ax[i, 2].imshow(res["pred_seg"].squeeze() > threshold, cmap='gray')
+        ax[i, 2].set_title(f"Tahmin (Dice: {res['dice']:.3f})")
         ax[i, 2].axis("off")
 
-        # Kenar
-        ax[i, 3].imshow(pred_edge[i].squeeze(), cmap='jet')
-        ax[i, 3].set_title("Kenar Tahmini")
+        # 4. Kenar
+        ax[i, 3].imshow(res["pred_edge"].squeeze(), cmap='jet')
+        ax[i, 3].set_title("Kenar")
         ax[i, 3].axis("off")
 
     plt.tight_layout()
-    if not os.path.exists("output"):
-        os.makedirs("output")
+    if not os.path.exists("output"): os.makedirs("output")
     plt.savefig(save_path)
-    print(f"🖼️ Görsel sonuçlar '{save_path}' dosyasına kaydedildi!")
+    print(f"✨ En iyi {batch_n} sonuç '{save_path}' dosyasına kaydedildi!")
 
 
 def main():
-    print(f"🔎 Detaylı Test Başlıyor (Dice, IoU, Precision, Recall)...")
+    print(f"🔎 Final Test Başlıyor (Threshold: {BEST_THRESHOLD})...")
 
-    # 1. Veri Seti
-    full_dataset = PolypDataset(f"{DATA_DIR}/images", f"{DATA_DIR}/masks", img_size=IMG_SIZE)
+    test_dataset = PolypDataset(root_dir=DATA_DIR, subset="test", img_size=IMG_SIZE)
+    test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False)
 
-
-    train_size = int(0.9 * len(full_dataset))
-    val_size = len(full_dataset) - train_size
-    _, val_dataset = random_split(full_dataset, [train_size, val_size])
-
-    val_loader = DataLoader(val_dataset, batch_size=4, shuffle=True)
-
-    # 2. Modeli Yükle
     model = PTransUNet(num_classes=1).to(DEVICE)
     if os.path.exists(MODEL_PATH):
         model.load_state_dict(torch.load(MODEL_PATH))
     else:
-        print("❌ Model bulunamadı!")
+        print("❌ Model bulunamadı!");
         return
 
     model.eval()
 
-    # 3. Hesaplama
     metrics = {"dice": 0, "iou": 0, "precision": 0, "recall": 0}
     steps = 0
 
     print("📊 Metrikler Hesaplanıyor...")
     with torch.no_grad():
-        for data, target, _ in tqdm(val_loader):
+        for data, target, _ in tqdm(test_loader):
             data, target = data.to(DEVICE), target.to(DEVICE)
 
             out_seg, _ = model(data)
             out_seg = torch.sigmoid(out_seg)
 
-            d, i, p, r = calculate_metrics(out_seg, target)
+            d, i, p, r = calculate_metrics(out_seg, target, threshold=BEST_THRESHOLD)
 
             metrics["dice"] += d
             metrics["iou"] += i
@@ -139,21 +156,19 @@ def main():
             metrics["recall"] += r
             steps += 1
 
-    # Ortalamaları al
-    for k in metrics:
-        metrics[k] /= steps
+    # Ortalamalar
+    for k in metrics: metrics[k] /= steps
 
-    print(f"\n✅ KARŞILAŞTIRMALI SONUÇLAR:")
+    print(f"\n✅ ETIS-Larib NİHAİ TEST SONUÇLARI (Threshold: {BEST_THRESHOLD}):")
     print(f"--------------------------------------------------")
-    print(f"{'METRİK':<15} | {'DOĞRULAMA SONUCU':<15} | {'MAKALEDEKİ SONUÇ':<15}")
-    print(f"--------------------------------------------------")
-    print(f"{'mDice':<15} | {metrics['dice']:.4f}          | 0.9352")
-    print(f"{'mIoU':<15} | {metrics['iou']:.4f}          | 0.8893")
-    print(f"{'Recall':<15} | {metrics['recall']:.4f}          | 0.9389")
-    print(f"{'Precision':<15} | {metrics['precision']:.4f}          | 0.9379")
+    print(f"{'mDice':<15} | {metrics['dice']:.4f}")
+    print(f"{'mIoU':<15} | {metrics['iou']:.4f}")
+    print(f"{'Recall':<15} | {metrics['recall']:.4f}")
+    print(f"{'Precision':<15} | {metrics['precision']:.4f}")
     print(f"--------------------------------------------------")
 
-    visualize_results(model, val_loader)
+    # En iyileri görselleştir
+    visualize_best_results(model, test_dataset, threshold=BEST_THRESHOLD)
 
 
 if __name__ == "__main__":

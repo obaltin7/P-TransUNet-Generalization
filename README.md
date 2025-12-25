@@ -67,11 +67,6 @@ The model was fine-tuned for 50 epochs on an **NVIDIA RTX 2060 (6GB)**. Despite 
 
 > **Analysis:** The baseline model struggled to detect small polyps (Recall ~38%). With our optimizations, **Recall increased to 65%**, meaning the model successfully captures the majority of difficult polyp cases.
 
-### Visual Results
-Below are the top-performing segmentation results from the Test set:
-
-![Best Results](output/best_results.png)
-
 ## ⚖️ License & Citation
 
 This project is an unofficial implementation for research purposes using the P-TransUNet architecture.

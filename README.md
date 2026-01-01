@@ -34,7 +34,7 @@ The **ETIS-Larib** dataset was organized as follows to ensure a deterministic ev
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/obaltin7/P-TransUNet-Etis-Generalization.git](https://github.com/obaltin7/P-TransUNet-Etis-Generalization.git)
+    git clone [https://github.com/obaltin7/P-TransUNet-Generalization.git](https://github.com/obaltin7/P-TransUNet-Generalization.git)
     cd P-TransUNet-Etis-Generalization
     ```
 
